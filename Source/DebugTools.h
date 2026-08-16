@@ -1,33 +1,39 @@
 #pragma once
 
 #include <iostream>
+#include <sstream>
+#include <string>
+
 #ifdef _MSC_VER
 #include <Windows.h>
 #endif
 
 class DebugTools {
 private:
-	DebugTools() {}
+    DebugTools() {}
 
 public:
-	static void log(std::stringstream msg) {
-		msg << std::endl; //Append a LF
-		DebugTools::log(msg.str());
-	};
+    static void log(std::stringstream msg) {
+        msg << std::endl;
+        log(msg.str());
+    };
 
-	static void log(const char *msg) {
-		DebugTools::log(std::string (msg));
-	}
-
-	static void log(std::string msg) {
-#ifndef _DEBUG
-		return;
-#else
+    static void log(const char *msg) {
+#ifdef _DEBUG
 #ifdef _MSC_VER
-		OutputDebugStringA(msg.append("\n").c_str());
+        OutputDebugStringA(std::string(msg) + "\n");
 #else
-		std::cout << msg.c_str() << std::endl;
+        std::cout << msg << std::endl;
 #endif
 #endif
-	};
+    };
+
+    static void log(const std::string& msg) {
+        log(msg.c_str());
+    };
+
+    // Overload for juce::String
+    static void log(const juce::String& msg) {
+        log(msg.toStdString().c_str());
+    };
 };

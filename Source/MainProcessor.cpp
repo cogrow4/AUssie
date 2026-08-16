@@ -1,340 +1,270 @@
+/*
+ ================================================================================
+ AU-VST-Bridge: Plugin Processor - Auto-loading Kontakt 8
+ ================================================================================
+ Directly hosts Kontakt 8 VST3 without AudioProcessorGraph for simplicity
+ ================================================================================
+*/
+
 #include "MainProcessor.h"
 #include "ProcessorEditor.h"
+#include "VSTPluginsHelper.hpp"
 
 //==============================================================================
 MainProcessor::MainProcessor()
      : AudioProcessor(
-		 BusesProperties()
-			.withInput("Input", AudioChannelSet::stereo(), true)
-			.withOutput("Output", AudioChannelSet::stereo(), true)
-	   ),
-	   audioProcessorGraph_(new AudioProcessorGraph())
-{    	
+         BusesProperties()
+            .withInput("Input", AudioChannelSet::stereo(), true)
+            .withOutput("Output", AudioChannelSet::stereo(), true)
+       )
+{
+    juce::addHeadlessDefaultFormatsToManager(formatManager_);
 }
 
 MainProcessor::~MainProcessor()
 {
-	/*if (pluginInstance_ != nullptr) {
-		delete pluginInstance_;
-	}*/
+}
+
+//==============================================================================
+void MainProcessor::loadKontakt8()
+{
+    if (kontaktLoadingAttempted)
+        return;
+    kontaktLoadingAttempted = true;
+    
+    const String kontaktPath = "/Library/Audio/Plug-Ins/VST3/Kontakt 8.vst3";
+    File vst3File(kontaktPath);
+    
+    if (!vst3File.exists())
+    {
+        loadingError = "Kontakt 8 VST3 not found at " + kontaktPath;
+        return;
+    }
+    
+    // Find VST3 format
+    AudioPluginFormat* vst3Format = nullptr;
+    for (int i = 0; i < formatManager_.getNumFormats(); ++i)
+    {
+        if (formatManager_.getFormat(i)->getName() == "VST3")
+        {
+            vst3Format = formatManager_.getFormat(i);
+            break;
+        }
+    }
+    
+    if (vst3Format == nullptr)
+    {
+        loadingError = "VST3 format not available";
+        return;
+    }
+    
+    // Get plugin description
+    OwnedArray<PluginDescription> descs;
+    vst3Format->findAllTypesForFile(descs, kontaktPath);
+    
+    if (descs.isEmpty())
+    {
+        loadingError = "No VST3 plugins found in Kontakt 8";
+        return;
+    }
+    
+    for (int i = 0; i < descs.size(); ++i)
+    {
+        if (descs[i]->isInstrument)
+        {
+            String msg;
+            std::unique_ptr<AudioPluginInstance> instance = formatManager_.createPluginInstance(*descs[i], 44100.0, 512, msg);
+            
+            if (instance != nullptr)
+            {
+                pluginInstance_ = std::move(instance);
+                pluginLoaded = true;
+            }
+            else
+            {
+                loadingError = "Failed to load Kontakt 8: " + msg;
+            }
+            return;
+        }
+    }
+    
+    loadingError = "No instrument VST3 found in Kontakt 8";
 }
 
 //==============================================================================
 const String MainProcessor::getName() const
 {
-    String pluginName = "[Bridged] xxxx";    
-	DebugTools::log(std::stringstream() << "getName() called");
-    return pluginName;
+    return "Kontakt 8 AU Bridge";
 }
 
 bool MainProcessor::acceptsMidi() const
 {
-	return true;
+    return true;
 }
 
 bool MainProcessor::producesMidi() const
 {
-	return true;
+    return true;
 }
 
 double MainProcessor::getTailLengthSeconds() const
 {
-	DebugTools::log(std::stringstream() << "getTailLengthInSeconds() called");  
-	if (pluginInstance_ != nullptr) {
-		return pluginInstance_->getTailLengthSeconds();
-	}
-	return 0.0;
+    if (pluginInstance_)
+        return pluginInstance_->getTailLengthSeconds();
+    return 0.0;
 }
 
 int MainProcessor::getNumPrograms()
 {
-	DebugTools::log(std::stringstream() << "getNumPrograms() called");    
-	if (pluginInstance_ != nullptr) {
-		return pluginInstance_->getNumPrograms();
-	} 
-
-	return 0;
+    if (pluginInstance_)
+        return jmax(1, pluginInstance_->getNumPrograms());
+    return 1;
 }
 
 int MainProcessor::getCurrentProgram()
 {
-	DebugTools::log(std::stringstream() << "getCurrentProgram() called"); 
-	if (pluginInstance_ != nullptr) {
-		return pluginInstance_->getCurrentProgram();
-	}
-	return 0;
+    if (pluginInstance_)
+        return pluginInstance_->getCurrentProgram();
+    return 0;
 }
 
 void MainProcessor::setCurrentProgram (int index)
 {
-	DebugTools::log(std::stringstream() << "setCurrentProgram(" << index << ")");    
-	if (pluginInstance_ != nullptr) {
-		pluginInstance_->setCurrentProgram(index);
-	}
+    if (pluginInstance_)
+        pluginInstance_->setCurrentProgram(index);
 }
 
 const String MainProcessor::getProgramName (int index)
 {
-	DebugTools::log(std::stringstream() << "getProgramName( " << index << ")");   
-	if (pluginInstance_ != nullptr) {
-		return pluginInstance_->getProgramName(index);
-	}
-	return String{};
+    if (pluginInstance_)
+        return pluginInstance_->getProgramName(index);
+    return String{};
 }
 
 void MainProcessor::changeProgramName (int index, const String& newName)
 {
-	DebugTools::log(std::stringstream() << "changeProgramName(" << index << ", " << newName << ")");   
-	if (pluginInstance_ != nullptr) {
-		pluginInstance_->changeProgramName(index, newName); 
-	}
+    if (pluginInstance_)
+        pluginInstance_->changeProgramName(index, newName);
 }
 
 //==============================================================================
 void MainProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    DebugTools::log(std::stringstream() << "Prepare to play with sampleRate=" << sampleRate << " and samplesPerBlock=" << samplesPerBlock);
-
-	audioProcessorGraph_->setPlayConfigDetails(getMainBusNumInputChannels(), getMainBusNumOutputChannels(), sampleRate, samplesPerBlock);
-	audioProcessorGraph_->prepareToPlay(sampleRate, samplesPerBlock);
-	initializeGraph();
+    if (!kontaktLoadingAttempted)
+        loadKontakt8();
+    
+    if (pluginInstance_)
+    {
+        pluginInstance_->setRateAndBufferSizeDetails(sampleRate, samplesPerBlock);
+        pluginInstance_->prepareToPlay(sampleRate, samplesPerBlock);
+    }
 }
 
 void MainProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages)
 {
-	//DebugTools::log(std::stringstream() << "processBlock() called");
+    for (int i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i)
+        buffer.clear(i, 0, buffer.getNumSamples());
 
-	for (int i = getTotalNumInputChannels(); i < getTotalNumOutputChannels(); ++i) {
-		buffer.clear(i, 0, buffer.getNumSamples());
-	}
-
-	if(pluginInitialized_)
-		audioProcessorGraph_->processBlock(buffer, midiMessages);
-	/*if(pluginInitialized_)
-		pluginInstance_->processBlock(buffer, midiMessages);*/
+    if (pluginInstance_)
+    {
+        // Ensure hosted plugin has correct channel layout
+        pluginInstance_->processBlock(buffer, midiMessages);
+    }
 }
 
 void MainProcessor::releaseResources()
 {
-    // When playback stops, you can use this as an opportunity to free up any
-    // spare memory, etc.
-	DebugTools::log("releaseResources() called");
-	if (pluginInstance_ != nullptr) {
-		pluginInstance_->releaseResources();
-	}
+    if (pluginInstance_)
+        pluginInstance_->releaseResources();
 }
 
 bool MainProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-	DebugTools::log(std::stringstream() << "isBusesLayoutSupported() called");
-	
-	if (layouts.getMainInputChannelSet() == AudioChannelSet::disabled()
-		|| layouts.getMainOutputChannelSet() == AudioChannelSet::disabled())
-		return false;
-	if (layouts.getMainOutputChannelSet() != AudioChannelSet::mono()
-		&& layouts.getMainOutputChannelSet() != AudioChannelSet::stereo())
-		return false;
-	return layouts.getMainInputChannelSet() == layouts.getMainOutputChannelSet();	
+    return layouts.getMainInputChannels() == layouts.getMainOutputChannels();
 }
-
-
 
 //==============================================================================
 bool MainProcessor::hasEditor() const
 {
-	return true;
+    return true;
 }
 
 AudioProcessorEditor* MainProcessor::createEditor()
-{	
-	//This editor will be used to select and configure plugin to be hosted	
-	return new ProcessorEditor(*this);	
+{
+    return new ProcessorEditor(*this);
 }
 
 //==============================================================================
 void MainProcessor::getStateInformation (MemoryBlock& destData)
 {
-	DebugTools::log(std::stringstream() << "getStateInformation() called");
-	//Here we must save the current state of the AU-VST plugin 
-	//as well as the state of the hosted plugin	
-	
-	//Our memory block layout is:
-	//Byte 0: is_initialised? 1=true|0=false - 1 byte
-	//** Byte 1-4: plugin description length (including \0) - 4 bytes
-	//Byte 5-n: plugin description string 
-	//** Byte n+1-n+4: plugin memory block length - 4 bytes
-	//Byte n+5: plugin memory block
-	MemoryBlock pluginData;
-	if (pluginInstance_ != nullptr) {
-		pluginInstance_->getStateInformation(pluginData);
-	}
-
-	MemoryOutputStream st(destData, true);
-	st.writeByte((pluginInstance_ == nullptr || !pluginInitialized_) ? 0 : 1); //1: plugin initialised?
-	String pluginIdentifierString;
-	if (pluginInstance_ != nullptr) {
-		pluginIdentifierString = pluginInstance_->getPluginDescription().createIdentifierString();
-	}
-	st.writeString(pluginIdentifierString); //2: plugin identifier string
-	st.write(pluginData.begin(), pluginData.getSize()); //3: plugin data
-
-	DebugTools::log(std::stringstream() << "Plugin block size: " << pluginData.getSize());
-	DebugTools::log(std::stringstream() << "Plugin block content: " << pluginData.toString());
-	DebugTools::log(std::stringstream() << "Memory block size: " << destData.getSize());
-	DebugTools::log(std::stringstream() << "Memory block content: " << destData.toString());
-	DebugTools::log(std::stringstream() << "Stream data size: " << st.getDataSize());
+    MemoryOutputStream st(destData, true);
+    
+    if (pluginInstance_ && pluginLoaded) 
+    {
+        st.writeByte(1);
+        String pluginIdentifierString = pluginInstance_->getPluginDescription().createIdentifierString();
+        st.writeString(pluginIdentifierString);
+        
+        MemoryBlock pluginData;
+        pluginInstance_->getStateInformation(pluginData);
+        st.write(pluginData.begin(), pluginData.getSize());
+    }
+    else
+    {
+        st.writeByte(0);
+    }
 }
 
 void MainProcessor::setStateInformation (const void* data, int sizeInBytes)
-{	
-	DebugTools::log(std::stringstream() << "setStateInformation called. sizeInBytes= " << sizeInBytes);
-	suspendProcessing(true);
-
-	MemoryInputStream st(data, sizeInBytes, false);	
-	DebugTools::log(std::stringstream() << "Stream data size: " << st.getDataSize());
-	
-	bool pluginInitialised = (st.readByte() == 0 ? false : true);
-	DebugTools::log(std::stringstream() << "Plugin initialised? " << (pluginInitialised ? "true" : "false"));
-	String pluginIdentifierString;
-	MemoryBlock pluginData;
-	if (pluginInitialised) {
-		pluginIdentifierString = st.readString();
-		st.readIntoMemoryBlock(pluginData);
-	}
-	DebugTools::log(std::stringstream() << "Plugin identifier string: " << pluginIdentifierString);
-	DebugTools::log(std::stringstream() << "Plugin block size: " << pluginData.getSize());
-	DebugTools::log(std::stringstream() << "Plugin block content: " << pluginData.toString());
-
-	//Now we load the plugin
-	if (!pluginIdentifierString.isEmpty()) {
-		//Before loading the plugin we need to unload the current if any		
-		if (pluginInstance_ == nullptr) {
-			VSTPluginsHelper vstPluginsHelper;
-			AudioPluginInstance * pluginInstance = vstPluginsHelper.getPluginWithIdentifierString(pluginIdentifierString);
-			if (pluginInstance != nullptr) {				
-				setPluginInstance(pluginInstance);				
-			}
-		}
-	}
-
-	//Finally we set the state of the plugin
-	if (pluginInstance_ != nullptr) {
-		pluginInstance_->setStateInformation(pluginData.getData(), pluginData.getSize());
-	}
-
-	suspendProcessing(false);
+{
+    MemoryInputStream st(data, sizeInBytes, false);
+    
+    bool pluginInitialised = (st.readByte() == 0 ? false : true);
+    
+    if (pluginInitialised) 
+    {
+        String pluginIdentifierString = st.readString();
+        MemoryBlock pluginData;
+        st.readIntoMemoryBlock(pluginData);
+        
+        if (!pluginInstance_)
+        {
+            VSTPluginsHelper vstPluginsHelper;
+            AudioPluginInstance* instance = vstPluginsHelper.getPluginWithPath("/Library/Audio/Plug-Ins/VST3/Kontakt 8.vst3");
+            if (instance != nullptr)
+                pluginInstance_.reset(instance);
+        }
+        
+        if (pluginInstance_ && pluginData.getSize() > 0) {
+            pluginInstance_->setStateInformation(pluginData.getData(), pluginData.getSize());
+        }
+    }
+    
+    suspendProcessing(false);
 }
 
 //==============================================================================
-void MainProcessor::initializeGraph()
+void MainProcessor::setPluginInstance(AudioPluginInstance* instance)
 {
-	DebugTools::log("initializeGraph() called");
-
-	audioProcessorGraph_->clear();
-	audioInputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::audioInputNode));
-	audioOutputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::audioOutputNode));
-	midiInputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::midiInputNode));
-	midiOutputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::midiOutputNode));
-	connectAudioNodes();
-	connectMidiNodes();
+    pluginInstance_.reset(instance);
 }
 
-void MainProcessor::connectAudioNodes()
+AudioPluginInstance* MainProcessor::getPluginInstance() const
 {
-	DebugTools::log("connectAudioNodes() called");
-	for (int channel = 0; channel < 2; ++channel) {
-		audioProcessorGraph_->addConnection(
-			{ 
-				{ audioInputNode_->nodeID,  channel },
-				{ audioOutputNode_->nodeID, channel } 
-			}
-		);
-	}
+    return pluginInstance_.get();
 }
 
-void MainProcessor::connectMidiNodes()
+//==============================================================================
+void MainProcessor::setCurrentEditorDimension(std::pair<int,int> dimension)
 {
-	DebugTools::log("connectMidiNodes() called");
-	if (!graphReady_) {
-		DebugTools::log("Connecting MIDI in to MIDI out directly");
-		audioProcessorGraph_->addConnection(
-			{
-				{ midiInputNode_->nodeID,  AudioProcessorGraph::midiChannelIndex },
-				{ midiOutputNode_->nodeID, AudioProcessorGraph::midiChannelIndex }
-			}
-		);
-	}
-	else {
-		DebugTools::log("Connecting MIDI in to plugin MIDI in");
-		audioProcessorGraph_->addConnection(
-			{
-				{ midiInputNode_->nodeID,  AudioProcessorGraph::midiChannelIndex },
-				{ pluginNode_->nodeID, AudioProcessorGraph::midiChannelIndex }
-			}
-		);
-		audioProcessorGraph_->addConnection(
-			{
-				{ pluginNode_->nodeID,  AudioProcessorGraph::midiChannelIndex },
-				{ midiOutputNode_->nodeID, AudioProcessorGraph::midiChannelIndex }
-			}
-		);
-	}
+    if (pluginInstance_) {
+        editorsDimension_ = dimension;
+    }
 }
 
-void MainProcessor::updateGraph()
+std::pair<int, int> MainProcessor::getCurrentEditorDimension()
 {
-	DebugTools::log("updateGraph() called");
-	if (pluginInstance_ == nullptr) {
-		return;
-	}
-	
-	//Remove all existing nodes
-	/*for (auto node : audioProcessorGraph_->getNodes()) {
-		audioProcessorGraph_->removeNode(node);
-	}	
-	
-	//Remove all existing connections
-	for (auto connection : audioProcessorGraph_->getConnections()) {
-		audioProcessorGraph_->removeConnection(connection);
-	}*/
-
-	audioProcessorGraph_->clear();
-	audioInputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::audioInputNode));
-	audioOutputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::audioOutputNode));
-	midiInputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::midiInputNode));
-	midiOutputNode_ = audioProcessorGraph_->addNode(new AudioGraphIOProcessor(AudioGraphIOProcessor::midiOutputNode));
-	pluginNode_ = audioProcessorGraph_->addNode(pluginInstance_);
-
-	//Reset plugin config details and prepare to play
-	pluginInstance_->setPlayConfigDetails(getMainBusNumInputChannels(), getMainBusNumOutputChannels(), getSampleRate(), getBlockSize());	
-	pluginInstance_->prepareToPlay(getSampleRate(), getBlockSize());
-	
-	//Connect the inputs and outputs to the plugin inputs and outputs	
-	for (int channel = 0; channel < 2; ++channel) {
-		audioProcessorGraph_->addConnection( //Audio input to plugin input
-			{ 
-				{ audioInputNode_->nodeID, channel },
-				{ pluginNode_->nodeID, channel }
-			}
-		);	
-		audioProcessorGraph_->addConnection( //Plugin output to audio output
-			{ 
-				{ pluginNode_->nodeID, channel },
-				{ audioOutputNode_->nodeID, channel } 
-			}
-		);
-	}
-	
-	graphReady_ = true;
-
-	//Reconnect MIDI nodes
-	connectMidiNodes();
-
-	//Enable all buses in the plugin
-	pluginInstance_->enableAllBuses();	
-
-	pluginInitialized_ = true;
-	DebugTools::log("Graph initialized");
+    return editorsDimension_;
 }
 
 //==============================================================================
