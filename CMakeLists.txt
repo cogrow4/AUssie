@@ -19,6 +19,7 @@ juce_add_plugin(AuVstBridge
     NEEDS_PROCESSOR TRUE
     NEEDS_EDITOR TRUE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    JucePlugin_ProducesAllUI=1
     COPY_PLUGIN_AFTER_BUILD TRUE
     VERSION 1.0.5
     BUNDLE_ID "com.cogrow4.kontakt8-aubridge"
@@ -49,6 +50,7 @@ target_compile_definitions(AuVstBridge
         JucePlugin_IsSynth=1
         JucePlugin_WantsMidiInput=1
         JucePlugin_ProducesMidiOutput=1
+        JucePlugin_ProducesAllUI=1
         JUCE_STRICT_REFCOUNTEDPOINTER=1
         KONTAKT_VST3_PATH="/Library/Audio/Plug-Ins/VST3/Kontakt 8.vst3"
 )
