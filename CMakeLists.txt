@@ -34,7 +34,6 @@ target_sources(AuVstBridge
         Source/MainProcessor.h
         Source/ProcessorEditor.cpp
         Source/ProcessorEditor.h
-        Source/LoadingThread.h
         Source/VSTPluginsHelper.hpp
         Source/DebugTools.h
 )

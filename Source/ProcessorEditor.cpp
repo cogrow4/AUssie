@@ -1,6 +1,6 @@
 /*
  ================================================================================
- AU-VST-Bridge: ProcessorEditor - Threaded loading with UI feedback
+ AU-VST-Bridge: ProcessorEditor - Shows loading status, then embeds Kontakt 8 editor
  ================================================================================
 */
 
@@ -76,9 +76,15 @@ void ProcessorEditor::paint (Graphics& g)
     
     if (pluginEditor_ == nullptr)
     {
-        String statusText = processor_.getLoadingStatus();
-        if (statusText.isEmpty() || statusText == "Loaded")
+        String statusText = "Loading Kontakt 8...";
+        if (processor_.getPluginInstance() == nullptr)
+        {
             statusText = "Loading Kontakt 8...";
+        }
+        else
+        {
+            statusText = "Initializing Kontakt 8...";
+        }
         
         g.setColour(Colours::white);
         g.setFont(15.0f);

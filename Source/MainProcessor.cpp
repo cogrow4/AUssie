@@ -1,13 +1,12 @@
 /*
  ================================================================================
- AU-VST-Bridge: Plugin Processor - Auto-loading Kontakt 8 with threaded loading
+ AU-VST-Bridge: Plugin Processor - Auto-loading Kontakt 8 (synchronous in prepareToPlay)
  ================================================================================
 */
 
 #include "MainProcessor.h"
 #include "ProcessorEditor.h"
 #include "VSTPluginsHelper.hpp"
-#include "LoadingThread.h"
 
 //==============================================================================
 MainProcessor::MainProcessor()
@@ -22,25 +21,15 @@ MainProcessor::MainProcessor()
 
 MainProcessor::~MainProcessor()
 {
-    if (loadingThread_)
-    {
-        loadingThread_->stopThread(5000);
-    }
 }
 
 //==============================================================================
-void MainProcessor::loadKontakt8()
-{
-    if (kontaktLoadingAttempted.exchange(true))
-        return;
-    
-    // Start loading on a background thread to avoid blocking Logic
-    loadingThread_ = std::make_unique<LoadingThread>(*this);
-    loadingThread_->startThread();
-}
-
 void MainProcessor::loadKontakt8Sync()
 {
+    if (kontaktLoadingAttempted)
+        return;
+    kontaktLoadingAttempted = true;
+    
     const String kontaktPath = "/Library/Audio/Plug-Ins/VST3/Kontakt 8.vst3";
     File vst3File(kontaktPath);
     
@@ -97,41 +86,6 @@ void MainProcessor::loadKontakt8Sync()
     }
     
     loadingError = "No instrument VST3 found in Kontakt 8";
-}
-
-void MainProcessor::finishLoading()
-{
-    const double sampleRate = getSampleRate() > 0 ? getSampleRate() : 44100.0;
-    const int blockSize = getBlockSize() > 0 ? getBlockSize() : 512;
-    
-    if (pluginInstance_)
-    {
-        pluginInstance_->setRateAndBufferSizeDetails(sampleRate, blockSize);
-        pluginInstance_->prepareToPlay(sampleRate, blockSize);
-    }
-    
-    // Notify the editor to refresh
-    if (AudioProcessorEditor* editor = getActiveEditor(); editor != nullptr)
-    {
-        editor->repaint();
-    }
-}
-
-//==============================================================================
-bool MainProcessor::isLoading() const
-{
-    return kontaktLoadingAttempted.load() && !pluginLoaded.load() && !loadErrorOccurred.load();
-}
-
-String MainProcessor::getLoadingStatus() const
-{
-    if (pluginLoaded.load())
-        return "Loaded";
-    if (loadErrorOccurred.load())
-        return loadingError;
-    if (kontaktLoadingAttempted.load())
-        return "Loading Kontakt 8...";
-    return "Ready";
 }
 
 //==============================================================================
@@ -193,8 +147,8 @@ void MainProcessor::changeProgramName (int index, const String& newName)
 //==============================================================================
 void MainProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    if (!kontaktLoadingAttempted.load())
-        loadKontakt8();
+    if (!kontaktLoadingAttempted)
+        loadKontakt8Sync();
     
     if (pluginInstance_)
     {
@@ -304,7 +258,6 @@ std::pair<int, int> MainProcessor::getCurrentEditorDimension()
 }
 
 //==============================================================================
-// This creates new instances of the plugin..
 AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new MainProcessor();
