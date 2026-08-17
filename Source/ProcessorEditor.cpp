@@ -10,6 +10,7 @@
 ProcessorEditor::ProcessorEditor (MainProcessor& p)
     : AudioProcessorEditor (&p), processor_ (p)
 {
+    DebugTools::log("ProcessorEditor constructor called");
     setOpaque(true);
     setSize(400, 200);
     
@@ -22,11 +23,14 @@ ProcessorEditor::ProcessorEditor (MainProcessor& p)
 
 void ProcessorEditor::checkPluginEditor()
 {
+    DebugTools::log("checkPluginEditor called, pluginInstance: " + String(processor_.getPluginInstance() != nullptr ? "true" : "false"));
     if (processor_.getPluginInstance() != nullptr && pluginEditor_ == nullptr)
     {
+        DebugTools::log("Creating plugin editor...");
         pluginEditor_ = processor_.getPluginInstance()->createEditorIfNeeded();
         if (pluginEditor_ != nullptr)
         {
+            DebugTools::log("Plugin editor created, adding to component");
             addAndMakeVisible(pluginEditor_);
             
             // Size to the plugin editor
@@ -46,6 +50,18 @@ void ProcessorEditor::checkPluginEditor()
                 pluginEditor_->setTopLeftPosition(0, 0);
             }
         }
+        else
+        {
+            DebugTools::log("createEditorIfNeeded returned null");
+        }
+    }
+    else if (pluginEditor_ != nullptr)
+    {
+        DebugTools::log("Plugin editor already exists");
+    }
+    else
+    {
+        DebugTools::log("No plugin instance available yet");
     }
 }
 

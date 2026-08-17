@@ -19,12 +19,10 @@ public:
     };
 
     static void log(const char *msg) {
-#ifdef _DEBUG
 #ifdef _MSC_VER
         OutputDebugStringA(std::string(msg) + "\n");
 #else
         std::cout << msg << std::endl;
-#endif
 #endif
     };
 

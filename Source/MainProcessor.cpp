@@ -17,6 +17,7 @@ MainProcessor::MainProcessor()
        )
 {
     juce::addHeadlessDefaultFormatsToManager(formatManager_);
+    DebugTools::log("MainProcessor constructor called");
 }
 
 MainProcessor::~MainProcessor()
@@ -26,8 +27,12 @@ MainProcessor::~MainProcessor()
 //==============================================================================
 void MainProcessor::loadKontakt8Sync()
 {
+    DebugTools::log("loadKontakt8Sync called");
     if (kontaktLoadingAttempted)
+    {
+        DebugTools::log("Already attempted loading");
         return;
+    }
     kontaktLoadingAttempted = true;
     
     const String kontaktPath = "/Library/Audio/Plug-Ins/VST3/Kontakt 8.vst3";
@@ -36,6 +41,7 @@ void MainProcessor::loadKontakt8Sync()
     if (!vst3File.exists())
     {
         loadingError = "Kontakt 8 VST3 not found at " + kontaktPath;
+        DebugTools::log("ERROR: " + loadingError);
         return;
     }
     
@@ -53,8 +59,11 @@ void MainProcessor::loadKontakt8Sync()
     if (vst3Format == nullptr)
     {
         loadingError = "VST3 format not available";
+        DebugTools::log("ERROR: " + loadingError);
         return;
     }
+    
+    DebugTools::log("Found VST3 format: " + vst3Format->getName());
     
     OwnedArray<PluginDescription> descs;
     vst3Format->findAllTypesForFile(descs, kontaktPath);
@@ -62,30 +71,38 @@ void MainProcessor::loadKontakt8Sync()
     if (descs.isEmpty())
     {
         loadingError = "No VST3 plugins found in Kontakt 8";
+        DebugTools::log("ERROR: " + loadingError);
         return;
     }
     
+    DebugTools::log("Found " + String(descs.size()) + " plugin descriptions");
+    
     for (int i = 0; i < descs.size(); ++i)
     {
+        DebugTools::log("Checking desc " + String(i) + ": " + descs[i]->name + ", isInstrument: " + (descs[i]->isInstrument ? "true" : "false"));
         if (descs[i]->isInstrument)
         {
             String msg;
+            DebugTools::log("Creating plugin instance...");
             std::unique_ptr<AudioPluginInstance> instance = formatManager_.createPluginInstance(*descs[i], 44100.0, 512, msg);
             
             if (instance != nullptr)
             {
                 pluginInstance_ = std::move(instance);
                 pluginLoaded = true;
+                DebugTools::log("SUCCESS: Plugin instance created");
             }
             else
             {
                 loadingError = "Failed to load Kontakt 8: " + msg;
+                DebugTools::log("ERROR: " + loadingError);
             }
             return;
         }
     }
     
     loadingError = "No instrument VST3 found in Kontakt 8";
+    DebugTools::log("ERROR: " + loadingError);
 }
 
 //==============================================================================
