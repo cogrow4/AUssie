@@ -1,14 +1,13 @@
 /*
  ================================================================================
- AU-VST-Bridge: Plugin Processor - Auto-loading Kontakt 8
- ================================================================================
- Directly hosts Kontakt 8 VST3 without AudioProcessorGraph for simplicity
+ AU-VST-Bridge: Plugin Processor - Auto-loading Kontakt 8 with threaded loading
  ================================================================================
 */
 
 #include "MainProcessor.h"
 #include "ProcessorEditor.h"
 #include "VSTPluginsHelper.hpp"
+#include "LoadingThread.h"
 
 //==============================================================================
 MainProcessor::MainProcessor()
@@ -23,15 +22,25 @@ MainProcessor::MainProcessor()
 
 MainProcessor::~MainProcessor()
 {
+    if (loadingThread_)
+    {
+        loadingThread_->stopThread(5000);
+    }
 }
 
 //==============================================================================
 void MainProcessor::loadKontakt8()
 {
-    if (kontaktLoadingAttempted)
+    if (kontaktLoadingAttempted.exchange(true))
         return;
-    kontaktLoadingAttempted = true;
     
+    // Start loading on a background thread to avoid blocking Logic
+    loadingThread_ = std::make_unique<LoadingThread>(*this);
+    loadingThread_->startThread();
+}
+
+void MainProcessor::loadKontakt8Sync()
+{
     const String kontaktPath = "/Library/Audio/Plug-Ins/VST3/Kontakt 8.vst3";
     File vst3File(kontaktPath);
     
@@ -58,7 +67,6 @@ void MainProcessor::loadKontakt8()
         return;
     }
     
-    // Get plugin description
     OwnedArray<PluginDescription> descs;
     vst3Format->findAllTypesForFile(descs, kontaktPath);
     
@@ -89,6 +97,41 @@ void MainProcessor::loadKontakt8()
     }
     
     loadingError = "No instrument VST3 found in Kontakt 8";
+}
+
+void MainProcessor::finishLoading()
+{
+    const double sampleRate = getSampleRate() > 0 ? getSampleRate() : 44100.0;
+    const int blockSize = getBlockSize() > 0 ? getBlockSize() : 512;
+    
+    if (pluginInstance_)
+    {
+        pluginInstance_->setRateAndBufferSizeDetails(sampleRate, blockSize);
+        pluginInstance_->prepareToPlay(sampleRate, blockSize);
+    }
+    
+    // Notify the editor to refresh
+    if (AudioProcessorEditor* editor = getActiveEditor(); editor != nullptr)
+    {
+        editor->repaint();
+    }
+}
+
+//==============================================================================
+bool MainProcessor::isLoading() const
+{
+    return kontaktLoadingAttempted.load() && !pluginLoaded.load() && !loadErrorOccurred.load();
+}
+
+String MainProcessor::getLoadingStatus() const
+{
+    if (pluginLoaded.load())
+        return "Loaded";
+    if (loadErrorOccurred.load())
+        return loadingError;
+    if (kontaktLoadingAttempted.load())
+        return "Loading Kontakt 8...";
+    return "Ready";
 }
 
 //==============================================================================
@@ -150,7 +193,7 @@ void MainProcessor::changeProgramName (int index, const String& newName)
 //==============================================================================
 void MainProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    if (!kontaktLoadingAttempted)
+    if (!kontaktLoadingAttempted.load())
         loadKontakt8();
     
     if (pluginInstance_)
@@ -167,7 +210,6 @@ void MainProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMes
 
     if (pluginInstance_)
     {
-        // Ensure hosted plugin has correct channel layout
         pluginInstance_->processBlock(buffer, midiMessages);
     }
 }
@@ -202,12 +244,9 @@ void MainProcessor::getStateInformation (MemoryBlock& destData)
     if (pluginInstance_ && pluginLoaded) 
     {
         st.writeByte(1);
-        String pluginIdentifierString = pluginInstance_->getPluginDescription().createIdentifierString();
-        st.writeString(pluginIdentifierString);
-        
         MemoryBlock pluginData;
         pluginInstance_->getStateInformation(pluginData);
-        st.write(pluginData.begin(), pluginData.getSize());
+        st.write(pluginData.begin(), (size_t)pluginData.getSize());
     }
     else
     {
@@ -223,7 +262,6 @@ void MainProcessor::setStateInformation (const void* data, int sizeInBytes)
     
     if (pluginInitialised) 
     {
-        String pluginIdentifierString = st.readString();
         MemoryBlock pluginData;
         st.readIntoMemoryBlock(pluginData);
         
@@ -236,7 +274,7 @@ void MainProcessor::setStateInformation (const void* data, int sizeInBytes)
         }
         
         if (pluginInstance_ && pluginData.getSize() > 0) {
-            pluginInstance_->setStateInformation(pluginData.getData(), pluginData.getSize());
+            pluginInstance_->setStateInformation(pluginData.getData(), (int)pluginData.getSize());
         }
     }
     
@@ -257,9 +295,7 @@ AudioPluginInstance* MainProcessor::getPluginInstance() const
 //==============================================================================
 void MainProcessor::setCurrentEditorDimension(std::pair<int,int> dimension)
 {
-    if (pluginInstance_) {
-        editorsDimension_ = dimension;
-    }
+    editorsDimension_ = dimension;
 }
 
 std::pair<int, int> MainProcessor::getCurrentEditorDimension()

@@ -1,51 +1,102 @@
-# AU-VST-Bridge
+# AUssie - Kontakt 8 AU Bridge
 
-**Current version**: 1.0.4
+A VST3-to-AUv2 plugin wrapper (bridge) that allows using Native Instruments Kontakt 8 (VST3) inside AU-only DAWs like Logic Pro.
 
-Do you have VST plugins you really want to use in MainStage or GarageBand but you can't because they won't load VST plugins? AU-VST-Bridge is an Audio Unit plugin which can host VST (2 and 3) plugin. 
+## Overview
 
-Currently it can only host one plugin, but maybe in the future it will be able to host and chain multiple plugins... but as long as you can have multiple AU-VST-Bridge in your DAW you can host multiple VST plugins and chain them in the DAW directly.
+AUssie is a JUCE-based Audiounit plugin that auto-loads the Kontakt 8 VST3 plugin and embeds its editor UI within the AUv2 plugin window. It allows you to use Kontakt 8 in Logic Pro (which only supports AU plugins natively) without needing a commercial wrapper solution.
 
-## Specifications
-- This is an Audio Unit plugin for macOS 64 bit
-- It is developped using the free version of [JUCE](https://juce.com/)
-- It uses mainly C++11 specification and is declared using C++14 specification because of the DSP linkage
+## Features
 
-## Remarks
-- As I'm a beginner with JUCE I may have made mistakes in the conception... feel free to comment and contribute
-- If you want a binary version please contact me
-- The plugin has been developped and tested for some specific VST 2 plugins and may not be compilant with all VST plugins. Please share your own experience for bug fixing
+- Auto-loading of Kontakt 8 VST3 (no manual plugin selection)
+- Threaded loading to prevent DAW hangs during plugin initialization
+- Embedded Kontakt 8 editor UI (no separate floating window)
+- MIDI pass-through to the hosted VST3 plugin
+- Audio passthrough (stereo in/out)
 
-## Dependencies
-- Steinberg VST3 SDK @ https://github.com/steinbergmedia/vst3sdk.git
-- Steinberg VST2 SDK addons (unlicensed but currently necessary for VST2 plugins)
-- JUCE framework
+## Requirements
 
-## Setup instructions
-1. Copy the AU-VT-Brudge.component bundle in the audio plugins directory on your Mac (~/Library/Audio/Plug-Ins/Components, or /Library/Audio/Plug-Ins/Components)
-2. If the plugin does not appear in your DAW, consider restarting the computer
+- macOS 12+
+- Logic Pro (or any AUv2-compatible DAW)
+- Native Instruments Kontakt 8 (VST3 version) installed at:
+  `/Library/Audio/Plug-Ins/VST3/Kontakt 8.vst3`
+- JUCE 8+ (project uses the CMake build system with JUCE submodule)
+
+## Building from Source
+
+### Prerequisites
+
+- Xcode Command Line Tools (`xcode-select --install`)
+- CMake 3.22+
+- JUCE submodule (or set `JUCE_CMAKE_SUBMODULE_PATH` to your JUCE install)
+
+### Build Instructions
+
+```bash
+git clone https://github.com/cogrow4/AUssie.git
+cd AUssie
+
+# Initialize JUCE submodule (or set JUCE_CMAKE_SUBMODULE_PATH)
+git submodule update --init --recursive
+
+# Configure and build
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+
+# Install (copies the component to ~/Library/Audio/Plug-Ins/Components/)
+cmake --install build --config Release
+```
 
 ## Usage
-A documentation in PDF is coming soon...
-1. Start you DAW
-2. Add an instrument plugin -> Select AU-VST-Plugin
-3. Open the plugin editor (depends on your DAW)
-4. The list in the top of the screen contains all available VST plugins
-5. Select the VST plugin you want to host in your DAW
-6. The VST plugins behaves exactly as if it were directly hosted in the DAW as an Audio Unit plugin (it should...)
 
-## Bug tracker
-Workflow: CONFIRMED (means reproduced) -> FIXED (means action taken) -> RESOLVED (means verified)
+1. Restart Logic Pro (or any AU host) after installing the plugin
+2. Create a new Software Instrument track
+3. Select "Kontakt 8 AU Bridge" from the instrument menu
+4. The plugin will show "Loading Kontakt 8..." while initializing
+5. Once loaded, the Kontakt 8 interface appears automatically
+6. Use Kontakt 8 normally (load libraries, instruments, etc.)
 
-- [AU] filter plugins list to exclude AU-VST-Bridge ** RESOLVED v1.0.3 **
-- [AU] replace transparent background with an opaque one ** RESOLVED v1.0.3 **
-- [All] save settings (plugin loaded and plugin settings) ** RESOLVED v1.0.3 **
-- [AU] computer crashes when saving settings (without any plugin selected?) ** RESOLVED v1.0.3 **
-- [All] settings are not kept when editor is closed and reopened ** RESOLVED v1.0.3 **
-- [All] dimensions of the editor are strange when opened the second time ** CONFIRMED v1.0.3 **
-- [AU] when reloaded in MainStage, plugin settings are OK but there is not editor ** RESOLVED v1.0.3 **
-- [AU] crash when changing plugin hosted in Mainstage ** FIXED v1.0.4 **
-- [AU] Spicy Guitar plugin editor is outside our plugin editor's area ** CONFIRMED v1.0.4 **
-- [All] Write documentation
-- [All] Finalise README.md (details about project and files) 
-- [All] defines plugin in categories synth and effects (and maybe others?)
+## How It Works
+
+AUssie acts as a bridge/wrapper:
+1. The AUv2 plugin is recognized by Logic Pro as a standard instrument
+2. In its constructor, the plugin creates a background thread to load the Kontakt 8 VST3 plugin using JUCE's `AudioPluginFormatManager`
+3. The editor displays a "Loading..." message while waiting for the background thread to complete
+4. Once loaded, the Kontakt 8 editor is embedded (using `createEditorIfNeeded()`) inside the AUv2 editor window
+5. Audio and MIDI data are passed through to the hosted VST3 plugin
+
+This approach uses synchronous plugin loading (`createPluginInstance`) but runs it on a background thread to avoid blocking the host's message loop, which was the cause of the original "loading kontakt 8" hang.
+
+## Project Structure
+
+```
+AUssie/
+├── Source/
+│   ├── MainProcessor.h/cpp    # Core AUv2 plugin processor (auto-loads Kontakt 8)
+│   ├── ProcessorEditor.h/cpp  # Editor with threaded loading indicator
+│   ├── LoadingThread.h        # Background thread for non-blocking VST3 loading
+│   ├── VSTPluginsHelper.hpp   # Plugin discovery/loading utilities
+│   └── DebugTools.h           # Debug logging utilities
+├── CMakeLists.txt             # CMake build configuration
+├── AuVstBridge.jucer          # Original Projucer file (from upstream)
+└── README.md
+```
+
+## Based on AuVstBridge
+
+This project is derived from [TristanIsrael/AuVstBridge](https://github.com/TristanIsrael/AuVstBridge) (MIT licensed) but has been significantly upgraded:
+
+- Simplified to single-plugin auto-loading (removed combobox selector)
+- Added threaded background loading to prevent DAW hangs
+- Modernized to work with JUCE master branch (CMake)
+- Embedded editor UI instead of separate window
+
+## License
+
+MIT License - see LICENSE file.
+
+## Credits
+
+- Based on AuVstBridge by TristanIsrael
+- Uses JUCE framework (GPL/Commercial)
+- Native Instruments Kontakt 8

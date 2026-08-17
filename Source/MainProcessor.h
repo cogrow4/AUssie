@@ -47,19 +47,29 @@ public:
     void setCurrentEditorDimension(std::pair<int,int> dimension);
     std::pair<int, int> getCurrentEditorDimension();
 
+    // Thread-safe status accessors
+    bool isPluginLoaded() const { return pluginLoaded.load(); }
+    bool isLoading() const;
+    String getLoadingStatus() const;
+    void finishLoading();
+
 private:
     //==============================================================================
     friend class ProcessorEditor;
+    friend class LoadingThread;
     
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainProcessor)
 
     void loadKontakt8();
-    
+    void loadKontakt8Sync();
+
     AudioPluginFormatManager formatManager_;
     std::unique_ptr<AudioPluginInstance> pluginInstance_;
+    std::unique_ptr<Thread> loadingThread_;
     
-    bool pluginLoaded = false;
-    bool kontaktLoadingAttempted = false;
+    std::atomic<bool> pluginLoaded{false};
+    std::atomic<bool> kontaktLoadingAttempted{false};
+    std::atomic<bool> loadErrorOccurred{false};
     juce::String loadingError;
     std::pair<int, int> editorsDimension_;
 };

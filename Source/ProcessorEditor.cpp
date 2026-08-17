@@ -1,33 +1,41 @@
 /*
  ================================================================================
- AU-VST-Bridge: ProcessorEditor - Auto-shows Kontakt 8 editor
+ AU-VST-Bridge: ProcessorEditor - Threaded loading with UI feedback
  ================================================================================
 */
 
 #include "ProcessorEditor.h"
-#include "VSTPluginsHelper.hpp"
-
-#define SPACE_BETWEEN_COMPONENTS 20
 
 //==============================================================================
 ProcessorEditor::ProcessorEditor (MainProcessor& p)
     : AudioProcessorEditor (&p), processor_ (p)
 {
-    setupUi();
+    setOpaque(true);
+    setSize(400, 200);
     
-    if (processor_.getPluginInstance() != nullptr)
+    // Try to create the plugin editor immediately (might already be loaded)
+    checkPluginEditor();
+    
+    // Poll for loading completion every 100ms
+    startTimer(100);
+}
+
+void ProcessorEditor::checkPluginEditor()
+{
+    if (processor_.getPluginInstance() != nullptr && pluginEditor_ == nullptr)
     {
         pluginEditor_ = processor_.getPluginInstance()->createEditorIfNeeded();
         if (pluginEditor_ != nullptr)
         {
             addAndMakeVisible(pluginEditor_);
             
+            // Size to the plugin editor
             auto bc = pluginEditor_->getConstrainer();
             int w = 1000, h = 700;
             if (bc != nullptr)
             {
-                w = bc->getMinimumWidth();
-                h = bc->getMinimumHeight();
+                w = jmax(bc->getMinimumWidth(), 800);
+                h = jmax(bc->getMinimumHeight(), 600);
             }
             pluginEditor_->setBounds(0, 0, w, h);
             setSize(w, h);
@@ -35,34 +43,54 @@ ProcessorEditor::ProcessorEditor (MainProcessor& p)
             if (pluginEditor_->isResizable())
             {
                 setResizable(true, true);
+                pluginEditor_->setTopLeftPosition(0, 0);
             }
         }
     }
-    
-    if (pluginEditor_ == nullptr)
-    {
-        setSize(500, 300);
-    }
 }
 
-void ProcessorEditor::setupUi()
+void ProcessorEditor::timerCallback()
 {
-    setOpaque(true);
+    if (pluginEditor_ == nullptr)
+    {
+        checkPluginEditor();
+    }
+    else
+    {
+        stopTimer();
+    }
+    
+    repaint();
 }
 
 ProcessorEditor::~ProcessorEditor()
 {
-    if (pluginEditor_ != nullptr) {
+    stopTimer();
+    if (pluginEditor_ != nullptr)
         delete pluginEditor_;
-    }
 }
 
-//==============================================================================
 void ProcessorEditor::paint (Graphics& g)
 {
     g.fillAll(Colours::black);
+    
+    if (pluginEditor_ == nullptr)
+    {
+        String statusText = processor_.getLoadingStatus();
+        if (statusText.isEmpty() || statusText == "Loaded")
+            statusText = "Loading Kontakt 8...";
+        
+        g.setColour(Colours::white);
+        g.setFont(15.0f);
+        g.drawText(statusText, getLocalBounds().reduced(20), 
+                   Justification::centred, true);
+    }
 }
 
 void ProcessorEditor::resized()
 {
+    if (pluginEditor_ != nullptr)
+    {
+        pluginEditor_->setBounds(getLocalBounds());
+    }
 }

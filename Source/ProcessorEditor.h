@@ -1,6 +1,6 @@
 /*
  ================================================================================
- AU-VST-Bridge: ProcessorEditor - Auto-shows Kontakt 8 editor
+ AU-VST-Bridge: ProcessorEditor - Threaded loading with UI feedback
  ================================================================================
 */
 
@@ -10,22 +10,23 @@
 #include "MainProcessor.h"
 
 //==============================================================================
-class ProcessorEditor : public AudioProcessorEditor
+class ProcessorEditor : public AudioProcessorEditor,
+                        public Timer
 {
 public:
     ProcessorEditor (MainProcessor&);
     ~ProcessorEditor();
 
-    //==============================================================================
     void paint (Graphics&) override;
     void resized() override;
+    void timerCallback() override;
 
 private:
     MainProcessor& processor_;
     AudioProcessorEditor* pluginEditor_ = nullptr;
-
-    void setupUi();
-    void checkAndShowPluginEditor();
+    
+    void createPluginEditor();
+    void checkPluginEditor();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ProcessorEditor)
 };
