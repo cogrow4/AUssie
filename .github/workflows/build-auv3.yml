@@ -1,0 +1,55 @@
+name: Build AUv3 Plugin
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+
+      - name: Configure CMake (Xcode generator)
+        run: |
+          cd AuVstBridge
+          cmake -G Xcode -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build AUv3
+        run: |
+          cd AuVstBridge
+          xcodebuild -project build/AuVstBridge.xcodeproj \
+            -scheme AuVstBridge \
+            -configuration Release \
+            -derivedDataPath build/DerivedData \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Find AUv3 component
+        run: |
+          find AuVstBridge/build -name "*.component" -o -name "*.appex" 2>/dev/null | head -20
+
+      - name: Upload AUv3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kontakt8-AU-Bridge-AUv3
+          path: |
+            AuVstBridge/build/DerivedData/Build/Products/Release/*.component
+            AuVstBridge/build/DerivedData/Build/Products/Release/*.appex
+            AuVstBridge/build/**/AUv3/*.component
+            AuVstBridge/build/**/AUv3/*.appex
+          retention-days: 7
