@@ -8,7 +8,7 @@ add_subdirectory(/tmp/JUCE /tmp/JUCE-build)
 juce_add_plugin(AuVstBridge
     JUCE_PROJECT_NAME "AU-VST-Bridge"
     PLUGIN_MANUFACTURER_CODE KV8B
-    PLUGIN_CODE K8AU
+    PLUGIN_CODE K8BR
     FORMATS AU
     PRODUCT_NAME "Kontakt 8 AU Bridge"
     COMPANY_NAME "cogrow4"
